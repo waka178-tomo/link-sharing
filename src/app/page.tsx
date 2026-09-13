@@ -248,3 +248,47 @@ export default function Home() {
               <p className="text-gray-400 dark:text-gray-400 text-sm">
                 リンクをシェアしていきましょう！🐝✨
               </p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {links.map((link) => (
+                <div key={link.id} className="rounded-lg border border-gray-200 dark:border-gray-700 p-4 bg-white dark:bg-gray-800 hover:shadow-md transition-shadow">
+              <div className="flex items-start gap-4">
+                {link.favicon && link.favicon !== '' && (
+                  <img src={link.favicon} alt="" className="w-8 h-8 flex-shrink-0 object-contain" />
+                )}
+                <div className="flex-1 min-w-0">
+                  <h3 className="font-medium text-gray-900 dark:text-gray-100 truncate">{link.title}</h3>
+                  {link.description && (
+                    <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 line-clamp-2">{link.description}</p>
+                  )}
+                  <div className="flex items-center gap-2 mt-2">
+                    <span className="text-xs text-gray-400 dark:text-gray-500 truncate">{extractDomain(link.url)}</span>
+                    <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">
+                      Link
+                    </span>
+                  </div>
+                </div>
+                <a
+                  href={link.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center px-3 py-1.5 rounded-md text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 transition-colors flex-shrink-0"
+                >
+                  Open ↗
+                </a>
+              </div>
+              <form onSubmit={(e) => handleDelete(e, link.id)} className="mt-3 pt-3 border-t border-gray-100 dark:border-gray-700">
+                <button type="submit" className="text-xs text-red-500 hover:text-red-700 dark:hover:text-red-400 transition-colors">
+                  Delete
+                </button>
+              </form>
+            </div>
+          ))}
+        </div>
+          )}
+        </section>
+      </main>
+    </div>
+  );
+}
