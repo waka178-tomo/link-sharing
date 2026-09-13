@@ -52,12 +52,12 @@ async function fetchLinkMetadata(url: string): Promise<{
   try {
     const response = await fetch(url);
     const html = await response.text();
-    const titleMatch = html.match(/<title[^>]*>([^<]+)</title>/i);
+    const titleMatch = html.match(/<title[^>]*>([^<]+)</title>/i); = html.match(/<title[^>]*>([^<]+)<\/title>/i);
     const title = titleMatch?.[1]?.trim() || url;
     const descMatch = html.match(
-      /<metas+name=["']description["']s+content=["']([^"']*)["']>/i
+      /<meta\s+name=["']description["']\s+content=["']([^"']*)["']>/i
     ) || html.match(
-      /<metas+property=["']og:description["']s+content=["']([^"']*)["']>/i
+      /<meta\s+property=["']og:description["']\s+content=["']([^"']*)["']>/i
     );
     const description = descMatch?.[1]?.trim() || extractDomain(url);
     const imgMatch = html.match(
