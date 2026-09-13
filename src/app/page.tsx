@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { supabase } from "@/lib/supabaseClient";
 
 interface LinkEntry {
   id: string;
@@ -10,8 +11,6 @@ interface LinkEntry {
   favicon: string;
   createdAt: number;
 }
-
-const STORAGE_KEY = "linkshare_links";
 
 function generateId(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -34,6 +33,38 @@ function extractDomain(url: string): string {
   }
 }
 
+async function fetchLinkMetadata(url: string): Promise<{
+  title: string;
+  description: string;
+  image_url?: string;
+}> {
+  try {
+    const response = await fetch(url);
+    const html = await response.text();
+    const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+    const title = titleMatch?.[1]?.trim() || url;
+    const descMatch = html.match(
+      /<meta[\s+]+name=["']description["'][\s+]+content=["']([^"']*)["']/i
+    ) || html.match(
+      /<meta[\s+]+property=["']og:description["'][\s+]+content=["']([^"']*)["']/i
+    );
+    const description = descMatch?.[1]?.trim() || extractDomain(url);
+    const imgMatch = html.match(
+      /<meta[\s+]+property=["']og:image["'][\s+]+content=["']([^"']*)["']/i
+    );
+    let image_url = imgMatch?.[1];
+    if (image_url && !image_url.startsWith("http")) {
+      const baseUrl = new URL(url);
+      image_url = image_url.startsWith("/")
+        ? `${baseUrl.origin}${image_url}`
+        : `${baseUrl.origin}/${image_url}`;
+    }
+    return { title, description, image_url };
+  } catch {
+    return { title: url, description: extractDomain(url) };
+  }
+}
+
 function isUrl(str: string): boolean {
   try {
     const u = new URL(str);
@@ -43,32 +74,45 @@ function isUrl(str: string): boolean {
   }
 }
 
-function loadLinks(): LinkEntry[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveLinks(links: LinkEntry[]): void {
-  if (typeof window === "undefined") return;
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(links));
-}
-
 export default function Home() {
-  const [urlInput, setUrlInput] = useState("");
+  const [urlInput, setUrlInput] = useState<string>("");
   const [links, setLinks] = useState<LinkEntry[]>([]);
-  const [error, setError] = useState("");
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string>("");
   const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const [saving, setSaving] = useState<boolean>(false);
 
   useEffect(() => {
-    setLinks(loadLinks());
+    const loadFromDB = async () => {
+      const { data, error } = await supabase
+        .from("links")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(100);
+      
+      if (error) {
+        console.error("Failed to load links:", error);
+        setLoading(false);
+        return;
+      }
+
+      const mapped: LinkEntry[] = (data || []).map((item: any) => ({
+        id: item.id,
+        url: item.url,
+        title: item.title || item.url,
+        description: item.description || extractDomain(item.url),
+        favicon: getFavicon(item.url),
+        createdAt: new Date(item.created_at).getTime(),
+      }));
+
+      setLinks(mapped);
+      setLoading(false);
+    };
+
+    loadFromDB();
   }, []);
 
-  const addLink = useCallback(() => {
+  const addLink = useCallback(async () => {
     const trimmed = urlInput.trim();
     if (!trimmed) {
       setError("URLを入力してください🐝");
@@ -79,34 +123,60 @@ export default function Home() {
       return;
     }
     setError("");
-    const newLink: LinkEntry = {
-      id: generateId(),
-      url: trimmed,
-      title: trimmed,
-      description: extractDomain(trimmed),
-      favicon: getFavicon(trimmed),
-      createdAt: Date.now(),
-    };
-    const updated = [newLink, ...links].slice(0, 100);
-    setLinks(updated);
-    saveLinks(updated);
-    setUrlInput("");
-  }, [urlInput, links]);
+    setSaving(true);
 
-  const removeLink = useCallback(
-    (id: string) => {
-      const updated = links.filter((l) => l.id !== id);
-      setLinks(updated);
-      saveLinks(updated);
-    },
-    [links]
-  );
+    try {
+      const metadata = await fetchLinkMetadata(trimmed);
+      
+      const { data, error } = await supabase
+        .from("links")
+        .insert({
+          url: trimmed,
+          title: metadata.title,
+          description: metadata.description,
+          favicon_url: getFavicon(trimmed),
+          image_url: metadata.image_url || "",
+        })
+        .select()
+        .single();
 
-    await applySchemaToSupabase();
-  setLoading(false);
-}, []);
+      if (error) {
+        console.error("Failed to insert link:", error);
+        setError("リンクの保存に失敗しました🐝");
+        setSaving(false);
+        return;
+      }
 
-return (
+      const newLink: LinkEntry = {
+        id: data.id,
+        url: data.url,
+        title: data.title || data.url,
+        description: data.description || extractDomain(data.url),
+        favicon: getFavicon(data.url),
+        createdAt: new Date(data.created_at).getTime(),
+      };
+
+      setLinks((prev) => [newLink, ...prev].slice(0, 100));
+      setUrlInput("");
+    } catch (err) {
+      console.error("Error adding link:", err);
+      setError("リンクの保存に失敗しました🐝");
+    } finally {
+      setSaving(false);
+    }
+  }, [urlInput]);
+
+  const removeLink = useCallback(async (id: string) => {
+    const { error } = await supabase.from("links").delete().eq("id", id);
+    if (error) {
+      console.error("Failed to delete link:", error);
+      setError("リンクの削除に失敗しました🐝");
+      return;
+    }
+    setLinks((prev) => prev.filter((l) => l.id !== id));
+  }, []);
+
+  return (
     <div className="flex flex-col flex-1 min-h-screen bg-gradient-to-br from-amber-50 via-orange-50 to-yellow-50 dark:from-gray-950 dark:via-black dark:to-gray-900 font-sans">
       {/* Header */}
       <header className="sticky top-0 z-10 backdrop-blur-md bg-white/70 dark:bg-black/70 border-b border-amber-200/50 dark:border-amber-800/30">
@@ -148,9 +218,10 @@ return (
             </div>
             <button
               type="submit"
-              className="h-12 px-6 rounded-2xl bg-gradient-to-r from-amber-400 to-orange-400 dark:from-amber-500 dark:to-orange-500 text-white font-semibold text-sm hover:from-amber-500 hover:to-orange-500 dark:hover:from-amber-400 dark:hover:to-orange-400 transition-all shadow-md hover:shadow-lg active:scale-95"
+              disabled={saving}
+              className="h-12 px-6 rounded-2xl bg-gradient-to-r from-amber-400 to-orange-400 dark:from-amber-500 dark:to-orange-500 text-white font-semibold text-sm hover:from-amber-500 hover:to-orange-500 dark:hover:from-amber-400 dark:hover:to-orange-400 transition-all shadow-md hover:shadow-lg active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              🐝 追加
+              {saving ? "⏳ 保存中..." : "🐝 追加"}
             </button>
           </form>
           {error && (
@@ -162,103 +233,16 @@ return (
 
         {/* Links List */}
         <section className="max-w-3xl mx-auto w-full px-6 pb-8">
-          {links.length === 0 ? (
+          {loading ? (
+            <div className="flex items-center justify-center py-24 text-center">
+              <p className="text-gray-500 dark:text-gray-400 text-lg">
+                ローディング中...🐝
+              </p>
+            </div>
+          ) : links.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-24 text-center">
               <span className="text-6xl mb-4">🔗</span>
               <p className="text-gray-500 dark:text-gray-400 text-lg">
                 まだリンクがありません
               </p>
-              <p className="text-gray-400 dark:text-gray-500 text-sm mt-1">
-                上のボックスにURLを貼り付けて、素敵なリンクをシェアしよう！
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {links.map((link) => (
-                <div
-                  key={link.id}
-                  onMouseEnter={() => setHoveredId(link.id)}
-                  onMouseLeave={() => setHoveredId(null)}
-                  className="group relative flex items-start gap-4 p-4 rounded-2xl border border-amber-200/50 dark:border-amber-800/30 bg-white/60 dark:bg-gray-900/50 backdrop-blur-sm hover:bg-white/90 dark:hover:bg-gray-900/80 hover:shadow-md hover:border-amber-300/60 dark:hover:border-amber-700/40 transition-all"
-                >
-                  {/* Favicon */}
-                  <div className="flex-shrink-0 w-10 h-10 rounded-xl bg-gray-100 dark:bg-gray-800 flex items-center justify-center overflow-hidden">
-                    {link.favicon ? (
-                      <img
-                        src={link.favicon}
-                        alt=""
-                        className="w-6 h-6"
-                        onError={(e) => {
-                          (e.target as HTMLImageElement).style.display = "none";
-                          const parent = (e.target as HTMLImageElement).parentElement;
-                          if (parent) {
-                            (parent as HTMLElement).innerHTML = '<span class="text-lg">🔗</span>';
-                          }
-                        }}
-                      />
-                    ) : (
-                      <span className="text-lg">🔗</span>
-                    )}
-                  </div>
-
-                  {/* Content */}
-                  <div className="flex-1 min-w-0">
-                    <a
-                      href={link.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-sm font-medium text-gray-900 dark:text-gray-100 hover:text-amber-600 dark:hover:text-amber-400 transition-colors truncate block"
-                    >
-                      {link.title}
-                    </a>
-                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                      {link.description}
-                    </p>
-                    <time className="text-xs text-gray-400 dark:text-gray-500 mt-1 block">
-                      {new Date(link.createdAt).toLocaleString("ja-JP")}
-                    </time>
-                  </div>
-
-                  {/* Delete */}
-                  <button
-                    onClick={() => removeLink(link.id)}
-                    className="flex-shrink-0 opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 transition-all"
-                    title="削除"
-                  >
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      width="16"
-                      height="16"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <path d="M3 6h18" />
-                      <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
-                      <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
-                    </svg>
-                  </button>
-                </div>
-              ))}
-
-              {/* Count */}
-              <p className="text-center text-xs text-gray-400 dark:text-gray-500 pt-4">
-                {links.length}件のリンク 🍯
-              </p>
-            </div>
-          )}
-        </section>
-      </main>
-
-      {/* Footer */}
-      <footer className="border-t border-amber-200/30 dark:border-amber-800/20 py-4">
-        <p className="text-center text-xs text-gray-400 dark:text-gray-500">
-          Made with 🐝 by LinkShare — data is stored locally in your browser
-        </p>
-      </footer>
-    </div>
-  );
-}
+              <p className="text-gray-400 d
