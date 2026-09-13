@@ -245,4 +245,6 @@ export default function Home() {
               <p className="text-gray-500 dark:text-gray-400 text-lg">
                 まだリンクがありません
               </p>
-              <p className="text-gray-400 dark:text-gray-400
+              <p className="text-gray-400 dark:text-gray-400 text-sm">
+                リンクをシェアしていきましょう！🐝✨
+              </p>
