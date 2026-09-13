@@ -102,7 +102,11 @@ export default function Home() {
     [links]
   );
 
-  return (
+    await applySchemaToSupabase();
+  setLoading(false);
+}, []);
+
+return (
     <div className="flex flex-col flex-1 min-h-screen bg-gradient-to-br from-amber-50 via-orange-50 to-yellow-50 dark:from-gray-950 dark:via-black dark:to-gray-900 font-sans">
       {/* Header */}
       <header className="sticky top-0 z-10 backdrop-blur-md bg-white/70 dark:bg-black/70 border-b border-amber-200/50 dark:border-amber-800/30">
