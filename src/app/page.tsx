@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/lib/supabaseClient";
 
 interface LinkEntry {
@@ -175,6 +175,11 @@ export default function Home() {
     }
     setLinks((prev) => prev.filter((l) => l.id !== id));
   }, []);
+
+  const handleDelete = useCallback(async (e: React.FormEvent, id: string) => {
+    e.preventDefault();
+    await removeLink(id);
+  }, [removeLink]);
 
   return (
     <div className="flex flex-col flex-1 min-h-screen bg-gradient-to-br from-amber-50 via-orange-50 to-yellow-50 dark:from-gray-950 dark:via-black dark:to-gray-900 font-sans">
