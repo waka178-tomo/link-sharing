@@ -61,7 +61,7 @@ async function fetchLinkMetadata(url: string): Promise<{
     );
     const description = descMatch?.[1]?.trim() || extractDomain(url);
     const imgMatch = html.match(
-      /<metas+property=["']og:image["']s+content=["']([^"']*)["']>/i
+      /<meta\s+property=["']og:image["']\s+content=["']([^"']*)["']>/i
     );
     let image_url = imgMatch?.[1] || "";
     if (image_url && !image_url.startsWith("http")) {
